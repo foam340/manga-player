@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>漫画播放器</title>
+<style>
+:root { --bg:#0d0d10; --fg:#e8e8ea; --mut:#9a9aa3; --acc:#ff5c77; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html, body { height:100%; }
+body { background:var(--bg); color:var(--fg); font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; overflow:hidden; }
+.hidden { display:none !important; }
+button, select, input[type=number] { background:#1d1d24; color:var(--fg); border:1px solid #33333d; border-radius:6px; padding:3px 10px; font:inherit; cursor:pointer; }
+button:hover, select:hover { border-color:var(--acc); }
+button.primary { background:var(--acc); border-color:var(--acc); color:#fff; min-width:66px; }
+input[type=number] { width:62px; cursor:text; }
+input[type=checkbox] { accent-color:var(--acc); cursor:pointer; }
+input[type=range] { accent-color:var(--acc); cursor:pointer; }
+#seek { flex:1 1 auto; width:100%; }
+::-webkit-scrollbar { width:12px; height:12px; }
+::-webkit-scrollbar-thumb { background:#33333d; border-radius:6px; }
+::-webkit-scrollbar-track { background:transparent; }
+kbd { background:#22222a; border:1px solid #3a3a45; border-bottom-width:2px; border-radius:4px; padding:0 5px; font:12px/1.7 Consolas,monospace; }
+
+/* ---------- 首页 ---------- */
+#home { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; padding:20px; }
+#home h1 { font-size:30px; letter-spacing:3px; }
+#home h1 span { color:var(--acc); }
+#drop { width:min(640px, 88vw); padding:50px 24px; border:2px dashed #3a3a45; border-radius:16px; text-align:center; color:var(--mut); cursor:pointer; transition:.15s; }
+#drop:hover, #drop.over { border-color:var(--acc); color:var(--fg); background:rgba(255,92,119,.06); }
+#drop b { color:var(--fg); font-size:17px; display:block; margin-bottom:8px; }
+.row { display:flex; gap:12px; }
+.hint { color:#6d6d78; font-size:12.5px; text-align:center; line-height:2; }
+
+/* ---------- 阅读器 ---------- */
+#reader { position:fixed; inset:0; }
+#stage { position:absolute; inset:0; overflow:auto; background:#000; display:flex; }
+#flow { margin:auto; }
+#stage.contain #flow { display:flex; align-items:center; justify-content:center; gap:10px; width:100vw; height:100vh; }
+#stage.paged #flow { display:block; text-align:center; font-size:0; }
+#stage img { background:#000; opacity:0; transition:opacity .2s; user-select:none; -webkit-user-drag:none; }
+#stage img.ld { opacity:1; }
+#stage.fit-contain img { max-width:100%; max-height:100vh; object-fit:contain; }
+#stage.fit-width.paged img { width:100vw; height:auto; display:inline-block; vertical-align:top; }
+#stage.duo.fit-width.paged img { width:calc(50vw - 6px); }
+#stage.fit-original.paged img { width:auto; height:auto; display:inline-block; vertical-align:top; }
+#stage.strip #flow { display:block; text-align:center; padding-bottom:45vh; }
+#stage.strip img { display:block; margin:0 auto 6px; width:auto; height:auto; max-width:100%; }
+@keyframes slNext { from { opacity:.15; transform:translateX(28px); } to { opacity:1; transform:none; } }
+@keyframes slPrev { from { opacity:.15; transform:translateX(-28px); } to { opacity:1; transform:none; } }
+#flow.sl-next { animation:slNext .16s ease-out; }
+#flow.sl-prev { animation:slPrev .16s ease-out; }
+@media (prefers-reduced-motion: reduce) { #flow.sl-next, #flow.sl-prev { animation:none; } }
+
+#pbar { position:fixed; top:0; left:0; height:3px; width:0%; background:var(--acc); z-index:11; }
+#topbar { position:fixed; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; flex-wrap:wrap; gap:7px; padding:8px 12px; background:rgba(16,16,22,.92); backdrop-filter:blur(8px); transition:opacity .25s, transform .25s; }
+#topbar.away { opacity:0; pointer-events:none; transform:translateY(-100%); }
+#seekrow { flex:1 1 100%; display:flex; align-items:center; gap:8px; }
+.ctl { display:flex; align-items:center; gap:5px; color:var(--mut); white-space:nowrap; }
+#bname { flex:1 1 120px; min-width:60px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--mut); }
+#counter { color:var(--mut); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.nocursor { cursor:none; }
+#loadinfo { position:fixed; left:14px; bottom:14px; z-index:15; background:rgba(16,16,22,.92); border:1px solid #3a3a45; padding:6px 14px; border-radius:8px; color:var(--mut); font-size:13px; }
+#toast { position:fixed; bottom:34px; left:50%; transform:translateX(-50%); background:rgba(20,20,26,.95); border:1px solid #3a3a45; padding:8px 18px; border-radius:20px; z-index:20; opacity:0; transition:opacity .3s; pointer-events:none; max-width:80vw; }
+#toast.on { opacity:1; }
+
+/* ---------- 帮助 ---------- */
+#help { position:fixed; inset:0; z-index:30; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; }
+#help .panel { background:#17171d; border:1px solid #3a3a45; border-radius:12px; padding:20px 26px; max-width:560px; max-height:86vh; overflow:auto; }
+#help h2 { font-size:16px; margin-bottom:12px; }
+#help table { border-collapse:collapse; font-size:13.5px; margin-bottom:14px; }
+#help td { padding:3px 10px 3px 0; color:var(--mut); }
+#help td:first-child { color:var(--fg); white-space:nowrap; }
+</style>
+</head>
+<body>
+
+<!-- 首页 -->
+<div id="home">
+  <h1>漫画<span>播放器</span></h1>
+  <div id="drop" title="点击选择文件">
+    <b>把 ZIP / CBZ / RAR / CBR 压缩包、图片或文件夹拖到这里</b>
+    支持 webp / jpg / jpeg / png / gif / bmp / avif · 加密 RAR 会询问密码<br>
+    所有内容只在本机内存中处理，不会上传
+  </div>
+  <div class="row">
+    <button id="pickFiles">选择压缩包 / 图片</button>
+    <button id="pickDir">选择文件夹</button>
+  </div>
+  <div class="hint">
+    打开后：<kbd>空格</kbd> 播放 / 暂停定时翻页 · <kbd>←</kbd> <kbd>→</kbd> 翻页 · <kbd>F</kbd> 全屏 · <kbd>Ctrl</kbd>+滚轮 缩放 · <kbd>?</kbd> 全部快捷键<br>
+    自动记住每本书的进度与设置 · RAR / 7z 压缩包可先用系统工具解压，再把文件夹拖进来
+  </div>
+</div>
+<input type="file" id="fileInput" multiple accept=".zip,.cbz,.rar,.cbr,image/*" hidden>
+<input type="file" id="dirInput" webkitdirectory multiple hidden>
+
+<!-- 阅读器 -->
+<div id="reader" class="hidden">
+  <div id="pbar"></div>
+  <div id="topbar">
+    <button id="backBtn" title="返回选择 (Esc)">⌂</button>
+    <div id="bname"></div>
+    <button id="prevBtn" title="上一页 (←)">⟨</button>
+    <button id="playBtn" class="primary" title="播放 / 暂停 (空格)">播放</button>
+    <button id="nextBtn" title="下一页 (→)">⟩</button>
+    <span id="counter">- / -</span>
+    <label class="ctl">模式
+      <select id="modeSel">
+        <option value="flip">翻页</option>
+        <option value="strip">条漫滚动</option>
+      </select>
+    </label>
+    <label class="ctl flip-only">方向
+      <select id="dirSel">
+        <option value="ltr">左 → 右</option>
+        <option value="rtl">右 → 左</option>
+      </select>
+    </label>
+    <label class="ctl flip-only">适应
+      <select id="fitSel">
+        <option value="contain">整页</option>
+        <option value="width">适宽</option>
+        <option value="original">原始</option>
+      </select>
+    </label>
+    <label class="ctl flip-only"><input type="checkbox" id="duoChk">双页</label>
+    <label class="ctl flip-only" title="双页模式下把超宽的跨页图自动切成左右两半"><input type="checkbox" id="splitChk">拆分宽页</label>
+    <label class="ctl flip-only">间隔 <input type="number" id="intervalInp" min="0.5" max="3600" step="0.5"> 秒</label>
+    <label class="ctl strip-only">速度 <input type="range" id="speedInp" min="20" max="400" step="10" style="width:110px"><span id="speedVal"></span></label>
+    <button id="helpBtn" title="帮助 (?)">?</button>
+    <button id="fsBtn" title="全屏 (F)">⛶</button>
+    <div id="seekrow"><input type="range" id="seek" min="0" max="1000" value="0"></div>
+  </div>
+  <div id="stage"><div id="flow"></div></div>
+  <div id="loadinfo" class="hidden"></div>
+</div>
+
+<!-- 帮助 -->
+<div id="help" class="hidden">
+  <div class="panel">
+    <h2>快捷键与说明</h2>
+    <table>
+      <tr><td><kbd>空格</kbd></td><td>播放 / 暂停定时翻页（播放时屏幕保持常亮）</td></tr>
+      <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>上一页 / 下一页（日漫方向下相反）</td></tr>
+      <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>第一页 / 最后一页</td></tr>
+      <tr><td><kbd>PageUp</kbd> / <kbd>PageDown</kbd></td><td>前后翻页（条漫模式下滚动）</td></tr>
+      <tr><td><kbd>+</kbd> / <kbd>−</kbd></td><td>加长 / 缩短翻页间隔</td></tr>
+      <tr><td><kbd>Ctrl</kbd> + 滚轮</td><td>缩放页面；缩放后拖动平移，双击复位</td></tr>
+      <tr><td><kbd>F</kbd></td><td>全屏切换</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>关闭帮助 / 退出全屏 / 返回首页</td></tr>
+      <tr><td>点击图片</td><td>左半边 / 右半边翻页（按阅读方向）</td></tr>
+      <tr><td>滚轮</td><td>整页模式下翻页；缩放后或适宽 / 条漫模式下滚动</td></tr>
+    </table>
+    <div class="hint" style="text-align:left">
+      · ZIP / CBZ / RAR / CBR 直接打开，RAR 加密包会询问密码（7z 请先解压）<br>
+      · 每本书的阅读进度和阅读设置会分开记忆<br>
+      · 双页模式下勾选「拆分宽页」可自动把跨页大图切成左右两半
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:8px"><button id="helpClose">关闭</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+/*__ZIP_PARSER_START__*/
+const IMG_RE = /\.(webp|jpe?g|jfif|png|gif|bmp|avif)$/i;
+const MIME = { webp:'image/webp', jpg:'image/jpeg', jpeg:'image/jpeg', jfif:'image/jpeg', png:'image/png', gif:'image/gif', bmp:'image/bmp', avif:'image/avif' };
+function extOf(n) { const m = /[.]([a-z0-9]+)$/i.exec(n); return m ? m[1].toLowerCase() : ''; }
+function isImageName(n) { return IMG_RE.test(n); }
+function decodeName(bytes, flags) {
+  if (flags & 0x800) return new TextDecoder('utf-8').decode(bytes);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch { try { return new TextDecoder('gbk').decode(bytes); } catch { return new TextDecoder('utf-8').decode(bytes); } }
+}
+function inflateRaw(bytes) {
+  const ds = new DecompressionStream('deflate-raw');
+  return new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+}
+async function parseZipBuffer(u8) {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= 0 && i >= u8.length - 22 - 65535; i--)
+    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('不是有效的 ZIP / CBZ 压缩包');
+  const total = dv.getUint16(eocd + 10, true);
+  const cdOff = dv.getUint32(eocd + 16, true);
+  if (cdOff === 0xFFFFFFFF || total === 0xFFFF) throw new Error('暂不支持 ZIP64 大压缩包，请解压后以文件夹方式打开');
+  const pages = []; let encrypted = 0, skipped = 0, allCount = 0;
+  let p = cdOff;
+  for (let n = 0; n < total; n++) {
+    if (p + 46 > u8.length || dv.getUint32(p, true) !== 0x02014b50) break;
+    const flags = dv.getUint16(p + 8, true);
+    const method = dv.getUint16(p + 10, true);
+    const compSize = dv.getUint32(p + 20, true);
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen = dv.getUint16(p + 30, true);
+    const cmtLen = dv.getUint16(p + 32, true);
+    const lho = dv.getUint32(p + 42, true);
+    const nameBytes = u8.subarray(p + 46, p + 46 + nameLen);
+    p += 46 + nameLen + extraLen + cmtLen;
+    allCount++;
+    if (nameBytes[nameBytes.length - 1] === 0x2F) continue;              // 目录
+    const name = decodeName(nameBytes, flags);
+    if (!isImageName(name)) continue;
+    if (flags & 0x1) { encrypted++; continue; }                          // 加密
+    if (method !== 0 && method !== 8) { skipped++; continue; }           // 非存储/Deflate
+    pages.push({ name, method, compSize, lho });
+  }
+  const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  pages.sort((a, b) => coll.compare(a.name, b.name));
+  return {
+    pages, encrypted, skipped, allCount,
+    async read(page) {
+      const lh = page.lho;
+      if (dv.getUint32(lh, true) !== 0x04034b50) throw new Error('压缩包结构异常，无法读取 ' + page.name);
+      const nameLen = dv.getUint16(lh + 26, true);
+      const extraLen = dv.getUint16(lh + 28, true);
+      const start = lh + 30 + nameLen + extraLen;
+      const comp = u8.subarray(start, start + page.compSize);
+      return page.method === 0 ? comp : new Uint8Array(await inflateRaw(comp));
+    }
+  };
+}
+/*__ZIP_PARSER_END__*/
+
+// ---------- RAR 支持（worker 源码与 wasm 由 build.mjs 注入） ----------
+const RAR_WORKER_SRC = /*__UNRAR_WORKER__*/"";
+const UNRAR_WASM_B64 = /*__UNRAR_WASM_B64__*/"";
+
+// ---------- 小工具 ----------
+const $ = s => document.getElementById(s);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('mp.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('mp.' + k, JSON.stringify(v)); } catch {} }
+};
+let toastT = 0;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), 2400); }
+function showLoadInfo(t) { const el = $('loadinfo'); el.textContent = t; el.classList.remove('hidden'); }
+function hideLoadInfo() { $('loadinfo').classList.add('hidden'); }
+const waitLoad = im => (im.complete && im.naturalWidth) ? null : new Promise(res => { im.addEventListener('load', res, { once: true }); im.addEventListener('error', res, { once: true }); });
+
+// ---------- 状态 ----------
+const S = {
+  book: null,            // { kind, name, key, count, pages[{name}], load(i)->Promise<Uint8Array> }
+  urls: new Map(),
+  idx: 0,
+  advance: 1,
+  playing: false,
+  interval: store.get('interval', 5),
+  speed: store.get('speed', 60),
+  mode: store.get('mode', 'flip'),
+  fit: store.get('fit', 'contain'),
+  duo: store.get('duo', false),
+  split: store.get('split', false),
+  rtl: store.get('rtl', false),
+  zoom: 1,
+  raf: 0, t0: 0, lastT: 0,
+};
+const stage = $('stage'), flow = $('flow');
+const navStack = [];
+const dimsCache = new Map();   // 页序号 -> {w,h}
+const splitCache = new Map();  // 页序号 -> [左半URL, 右半URL]
+
+// ---------- 打开 / 关闭 ----------
+async function closeBook() {
+  pause();
+  relWake();
+  for (const url of S.urls.values()) URL.revokeObjectURL(url);
+  S.urls.clear();
+  for (const pair of splitCache.values()) for (const u of pair) URL.revokeObjectURL(u);
+  splitCache.clear();
+  dimsCache.clear();
+  navStack.length = 0;
+  S.zoom = 1; stage.style.zoom = '';
+  S.advance = 1;
+  rarBytes = null; rarWaiters = null;
+  hideLoadInfo();
+  S.book = null;
+}
+function home() {
+  saveProgress();
+  closeBook();
+  $('reader').classList.add('hidden');
+  $('home').classList.remove('hidden');
+}
+
+// 魔数嗅探 + 分发
+async function openFromFiles(fileList) {
+  const arr = [...fileList].filter(f => !f.name.startsWith('.'));
+  if (!arr.length) return;
+  await closeBook();
+  try {
+    const first = arr[0];
+    const head = new Uint8Array(await first.slice(0, 8).arrayBuffer());
+    const isRar = head[0] === 0x52 && head[1] === 0x61 && head[2] === 0x72 && head[3] === 0x21 && head[4] === 0x1A && head[5] === 0x07;
+    const is7z = head[0] === 0x37 && head[1] === 0x7A && head[2] === 0xBC && head[3] === 0xAF;
+    const isZip = head[0] === 0x50 && head[1] === 0x4B;
+    const zipCand = arr.find(x => /\.(zip|cbz)$/i.test(x.name));
+    if (isRar) return await openRarFile(first);
+    if (is7z) { toast('暂不支持 7z 格式，请解压成文件夹后拖入'); return; }
+    if (zipCand || isZip) {
+      const zf = zipCand || first;
+      if (arr.length > 1) toast('一次只打开第一个压缩包：' + zf.name);
+      return await openZipFile(zf);
+    }
+    return await openImageFiles(arr);
+  } catch (e) {
+    hideLoadInfo();
+    toast(e.message || String(e));
+  }
+}
+
+async function openZipFile(file) {
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  const zip = await parseZipBuffer(u8);
+  if (!zip.pages.length) {
+    toast('压缩包里没有可显示的图片' + (zip.encrypted ? '（含加密文件，暂不支持）' : ''));
+    return;
+  }
+  S.book = { kind: 'zip', name: file.name, key: 'zip|' + file.name + '|' + file.size, count: zip.pages.length, pages: zip.pages, load: i => zip.read(zip.pages[i]) };
+  if (zip.skipped) toast('有 ' + zip.skipped + ' 个文件使用了不支持的压缩方式，已跳过');
+  afterBookOpen();
+}
+
+async function openImageFiles(arr) {
+  const path = f => f.webkitRelativePath || f.name;
+  const imgs = arr.filter(f => isImageName(path(f)));
+  if (!imgs.length) { toast('没有找到可显示的图片（支持 webp / jpg / png / gif / bmp）'); return; }
+  const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  imgs.sort((a, b) => coll.compare(path(a), path(b)));
+  const root = (path(imgs[0]).match(/^[^\/\\]+/) || [''])[0];
+  let sum = 0; for (const f of imgs) sum = (sum + f.size) % 9007199254740991;
+  S.book = { kind: 'dir', name: root || '图片', key: 'dir|' + root + '|' + imgs.length + '|' + sum, count: imgs.length, pages: imgs, load: i => imgs[i].arrayBuffer().then(b => new Uint8Array(b)) };
+  afterBookOpen();
+}
+
+// 打开书籍的公共收尾：UI 切换 + 本书设置恢复 + 进度恢复
+function afterBookOpen() {
+  $('home').classList.add('hidden');
+  $('reader').classList.remove('hidden');
+  $('bname').textContent = S.book.name;
+  S.idx = 0;
+  navStack.length = 0;
+  const rec = store.get('progress', {})[S.book.key];
+  if (rec && rec.set) {
+    S.mode = rec.set.mode === 'strip' || rec.set.mode === 'flip' ? rec.set.mode : S.mode;
+    S.rtl = !!rec.set.rtl;
+    S.fit = rec.set.fit || S.fit;
+    S.duo = !!rec.set.duo;
+    S.split = !!rec.set.split;
+  }
+  syncControls();
+  setMode(S.mode, true);
+  if (rec && rec.n === S.book.count) {
+    if (S.mode === 'flip' && rec.i > 0 && rec.i < S.book.count) {
+      show(rec.i); toast('已恢复到第 ' + (rec.i + 1) + ' 页');
+    } else if (S.mode === 'strip' && rec.f > 0.005) {
+      show(0, rec.f); toast('已恢复上次阅读位置');
+    } else show(0);
+  } else show(0);
+}
+
+// ---------- RAR（后台 worker 流式解压） ----------
+let rarWorker = null, rarSeq = 0, wasmBytes = null;
+const rarPend = new Map();
+let rarBytes = null, rarWaiters = null, rarTotal = 0, rarDone = 0;
+
+function ensureWasm() {
+  if (!wasmBytes) {
+    const raw = atob(UNRAR_WASM_B64);
+    wasmBytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) wasmBytes[i] = raw.charCodeAt(i);
+  }
+  return wasmBytes;
+}
+function ensureRarWorker() {
+  if (rarWorker) return rarWorker;
+  rarWorker = new Worker(URL.createObjectURL(new Blob([RAR_WORKER_SRC], { type: 'text/javascript' })));
+  rarWorker.onerror = e => {
+    const err = Object.assign(new Error('RAR 解压 worker 异常：' + (e.message || '未知错误')), {});
+    for (const [, p] of rarPend) p.reject(err);
+    rarPend.clear();
+  };
+  rarWorker.onmessage = e => {
+    const d = e.data || {};
+    if (d.ok && d.name && d.bytes) onRarBytes(d.name, d.bytes);
+    const p = rarPend.get(d.id);
+    if (!p) return;
+    if (d.ok && (d.done || d.names)) { rarPend.delete(d.id); p.resolve(d); }
+    else if (!d.ok) { rarPend.delete(d.id); p.reject(Object.assign(new Error(d.error || '解压失败'), { reason: d.reason })); }
+  };
+  return rarWorker;
+}
+function rarCall(msg) {
+  return new Promise((resolve, reject) => {
+    const id = ++rarSeq;
+    rarPend.set(id, { resolve, reject });
+    ensureRarWorker().postMessage(Object.assign({ id }, msg));
+  });
+}
+function onRarBytes(name, bytes) {
+  if (!rarBytes) return;
+  const norm = name.replace(/\\/g, '/');
+  if (!rarBytes.has(norm)) {
+    rarBytes.set(norm, bytes);
+    rarDone++;
+    if (rarTotal) $('loadinfo').textContent = '正在解压 ' + rarDone + ' / ' + rarTotal;
+  }
+  const ws = rarWaiters && rarWaiters.get(norm);
+  if (ws) { rarWaiters.delete(norm); for (const w of ws) w.res(bytes); }
+}
+function rarGet(name) {
+  const b = rarBytes && rarBytes.get(name);
+  if (b) return Promise.resolve(b);
+  return new Promise((res, rej) => {
+    const ws = rarWaiters.get(name) || [];
+    ws.push({ res, rej });
+    rarWaiters.set(name, ws);
+  });
+}
+async function openRarFile(file) {
+  showLoadInfo('正在读取 ' + file.name + ' …');
+  const buf = await file.arrayBuffer();
+  let names = null, password = '';
+  for (let attempt = 0; attempt < 3 && !names; attempt++) {
+    try {
+      const res = await rarCall({ cmd: 'open', data: buf, wasmBinary: ensureWasm(), password });
+      names = res.names;
+    } catch (err) {
+      if (err.reason === 'ERAR_MISSING_PASSWORD' || err.reason === 'ERAR_BAD_PASSWORD') {
+        password = prompt('该 RAR 压缩包已加密，请输入密码：');
+        if (password == null || password === '') { hideLoadInfo(); toast('需要密码，已取消'); return; }
+      } else {
+        hideLoadInfo();
+        toast('打开 RAR 失败：' + err.message);
+        return;
+      }
+    }
+  }
+  if (!names || !names.length) { hideLoadInfo(); toast('RAR 里没有可显示的图片'); return; }
+  const norm = [...new Set(names.map(n => n.replace(/\\/g, '/')))];
+  const coll = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  norm.sort(coll.compare);
+  rarBytes = new Map(); rarWaiters = new Map(); rarTotal = norm.length; rarDone = 0;
+  S.book = { kind: 'rar', name: file.name, key: 'rar|' + file.name + '|' + file.size, count: norm.length, pages: norm.map(n => ({ name: n })), load: i => rarGet(norm[i]) };
+  afterBookOpen();
+  showLoadInfo('正在解压 0 / ' + norm.length);
+  rarCall({ cmd: 'extractAll' }).then(() => {
+    hideLoadInfo();
+  }).catch(err => {
+    hideLoadInfo();
+    toast('解压出错：' + err.message);
+    if (rarWaiters) { for (const ws of rarWaiters.values()) for (const w of ws) w.rej(err); rarWaiters.clear(); }
+  });
+}
+
+// ---------- 图片 URL（懒创建 + 缓存 + 窗口修剪） ----------
+function pageURL(k) {
+  const hit = S.urls.get(k);
+  if (hit) return Promise.resolve(hit);
+  return Promise.resolve(S.book.load(k)).then(data => {
+    const ext = extOf(S.book.pages[k].name || '') || 'png';
+    const url = URL.createObjectURL(new Blob([data], { type: MIME[ext] || 'application/octet-stream' }));
+    S.urls.set(k, url);
+    return url;
+  });
+}
+function pruneURLs() {
+  const lo = S.idx - 6, hi = S.idx + 12;
+  for (const k of [...S.urls.keys()]) {
+    if (k < lo || k > hi) { URL.revokeObjectURL(S.urls.get(k)); S.urls.delete(k); }
+  }
+}
+function preload(from, count) {
+  for (let k = from; k < from + count && k < S.book.count; k++)
+    pageURL(k).then(url => { const im = new Image(); im.src = url; }).catch(() => {});
+}
+function makeImg(src) {
+  const im = new Image();
+  im.decoding = 'async';
+  im.onload = () => im.classList.add('ld');
+  im.onerror = () => im.classList.add('ld');
+  im.src = src;
+  return im;
+}
+
+// ---------- 宽页拆分 ----------
+// 注意：不用 img.decode()——它的 Promise 依赖渲染生命周期，在无帧环境下永不 resolve；
+// load 事件只依赖数据加载，拿到 naturalWidth 就够了
+async function dimsOf(i) {
+  if (dimsCache.has(i)) return dimsCache.get(i);
+  const im = new Image();
+  im.src = await pageURL(i);
+  await waitLoad(im);
+  const d = { w: im.naturalWidth || 1, h: im.naturalHeight || 1 };
+  dimsCache.set(i, d);
+  return d;
+}
+async function isWide(i) {
+  if (!S.split || !S.duo) return false;
+  const d = await dimsOf(i);
+  return d.w / d.h >= 1.25;
+}
+async function splitURLs(i) {
+  if (splitCache.has(i)) return splitCache.get(i);
+  const d = await dimsOf(i);
+  if (d.w / d.h < 1.25) return null;
+  const im = new Image();
+  im.src = await pageURL(i);
+  await waitLoad(im);
+  const halfW = Math.floor(d.w / 2), h = d.h;
+  const urls = [];
+  for (const [sx, sw] of [[0, halfW], [halfW, d.w - halfW]]) {
+    const c = document.createElement('canvas');
+    c.width = sw; c.height = h;
+    c.getContext('2d').drawImage(im, sx, 0, sw, h, 0, 0, sw, h);
+    const blob = await new Promise(res => c.toBlob(res, 'image/webp', 0.92));
+    urls.push(URL.createObjectURL(blob));
+  }
+  splitCache.set(i, urls);
+  return urls;
+}
+
+// ---------- 渲染 ----------
+// renderGen：渲染代数号。show 是异步的，快速连续触发时会并发交错；
+// 每次 show 自增，所有 await 之后检查代数号，过期渲染直接放弃，保证 DOM 只被最新一次写入
+let renderGen = 0;
+async function show(i, frac, dir) {
+  if (!S.book) return;
+  const gen = ++renderGen;
+  const stale = () => gen !== renderGen;
+  const n = S.book.count;
+  S.idx = Math.max(0, Math.min(n - 1, i));
+  if (S.mode === 'flip') {
+    let adv = 1;
+    const slots = [];
+    if (S.duo) {
+      if (await isWide(S.idx)) {
+        const halves = await splitURLs(S.idx);
+        if (stale()) return;
+        if (halves) { slots.push(...(S.rtl ? [halves[1], halves[0]] : halves)); adv = 1; }
+        else slots.push(await pageURL(S.idx));
+      } else if (S.idx + 1 < n && await isWide(S.idx + 1)) {
+        if (stale()) return;
+        slots.push(await pageURL(S.idx)); adv = 1;
+      } else if (S.idx + 1 < n) {
+        slots.push(await pageURL(S.idx));
+        slots.push(await pageURL(S.idx + 1));
+        adv = 2;
+      } else slots.push(await pageURL(S.idx));
+      if (stale()) return;
+    } else {
+      slots.push(await pageURL(S.idx));
+      if (stale()) return;
+    }
+    S.advance = adv;
+    flow.innerHTML = '';
+    for (const src of slots) flow.appendChild(makeImg(src));
+    if (dir) flow.classList.add(dir === 'next' ? 'sl-next' : 'sl-prev');
+    updateCounter();
+    preload(S.idx + S.advance, 4);
+    pruneURLs();
+  } else {
+    const urls = [];
+    for (let k = 0; k < n; k++) urls.push(await pageURL(k));
+    if (stale()) return;
+    flow.innerHTML = '';
+    const els = urls.map(u => { const im = makeImg(u); flow.appendChild(im); return im; });
+    if (frac != null) {
+      await Promise.all(els.map(waitLoad));
+      if (stale()) return;
+      stage.scrollTop = frac * Math.max(1, stage.scrollHeight - stage.clientHeight);
+    } else stage.scrollTop = 0;
+    updateCounter();
+  }
+  if (stale()) return;
+  updateSeek();
+  saveProgressSoon();
+}
+function stripPage() {
+  const imgs = flow.querySelectorAll('img');
+  if (!imgs.length) return 0;
+  const top = stage.scrollTop + 60;
+  let k = 0;
+  for (let j = 0; j < imgs.length; j++) if (imgs[j].offsetTop <= top) k = j;
+  return k;
+}
+function updateCounter() {
+  if (!S.book) return;
+  $('counter').textContent = (S.mode === 'flip' ? S.idx : stripPage()) + 1 + ' / ' + S.book.count;
+}
+
+// ---------- 翻页 / 播放 ----------
+function go(d, opts) {
+  if (!S.book) return;
+  opts = opts || {};
+  if (S.mode === 'strip') {
+    stage.scrollBy({ top: d * stage.clientHeight * 0.85 });
+    return;
+  }
+  const n = S.book.count;
+  if (d > 0) {
+    let ni = S.idx + (S.advance || 1);
+    if (ni >= n) {
+      ni = n - 1;
+      if (S.playing) { pause(); toast('已读完 ✓'); }
+      else toast('已经是最后一页');
+    }
+    if (ni !== S.idx) { navStack.push(S.idx); S.idx = ni; show(S.idx, null, 'next'); }
+  } else {
+    const ni = navStack.length ? navStack.pop() : 0;
+    if (ni !== S.idx) { S.idx = ni; show(S.idx, null, 'prev'); }
+    else if (!opts.auto) toast('已经是第一页');
+  }
+  if (!opts.auto) resetT0();
+  saveProgressSoon();
+}
+function resetT0() {
+  if (S.playing && S.mode === 'flip') armFlip();
+}
+function play() {
+  if (!S.book) return;
+  if (S.mode === 'flip' && S.idx >= S.book.count - 1) { S.idx = 0; show(0); toast('从头开始播放'); }
+  S.playing = true;
+  $('playBtn').textContent = '暂停';
+  if (S.mode === 'flip') armFlip();
+  else { S.lastT = performance.now(); cancelAnimationFrame(S.raf); S.raf = requestAnimationFrame(loop); }
+  reqWake();
+  pokeUI();
+}
+function pause() {
+  S.playing = false;
+  $('playBtn').textContent = '播放';
+  clearInterval(flipTimer);
+  cancelAnimationFrame(S.raf);
+  $('pbar').style.transition = 'none';
+  $('pbar').style.width = '0%';
+  relWake();
+  pokeUI();
+}
+// 翻页驱动：setInterval 不受标签页遮挡影响，比 rAF 更符合"播放器"的节奏
+let flipTimer = 0;
+function armFlip() {
+  clearInterval(flipTimer);
+  S.t0 = performance.now();
+  restartBar();
+  flipTimer = setInterval(() => {
+    if (!S.playing || S.mode !== 'flip') return;
+    if (performance.now() - S.t0 >= Math.max(0.1, S.interval) * 1000) {
+      S.t0 = performance.now();
+      restartBar();
+      go(+1, { auto: true });
+    }
+  }, 100);
+}
+function restartBar() {
+  const bar = $('pbar');
+  bar.style.transition = 'none';
+  bar.style.width = '0%';
+  void bar.offsetWidth;
+  bar.style.transition = 'width ' + Math.max(0.1, S.interval) + 's linear';
+  bar.style.width = '100%';
+}
+function loop(t) {
+  if (!S.playing) return;
+  if (S.mode === 'strip') {
+    const dt = Math.min(100, t - S.lastT);
+    S.lastT = t;
+    stage.scrollTop += S.speed * dt / 1000;
+    if (stage.scrollTop >= stage.scrollHeight - stage.clientHeight - 1) {
+      pause(); toast('已读到底 ✓');
+      return;
+    }
+    S.raf = requestAnimationFrame(loop);
+  }
+}
+
+// ---------- 屏幕常亮 ----------
+let wakeLock = null;
+async function reqWake() {
+  try { if ('wakeLock' in navigator && S.playing) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+}
+function relWake() { try { if (wakeLock) wakeLock.release(); } catch {} wakeLock = null; }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && S.playing) reqWake(); });
+
+// ---------- 模式 / 设置 ----------
+function syncControls() {
+  $('modeSel').value = S.mode;
+  $('dirSel').value = S.rtl ? 'rtl' : 'ltr';
+  $('fitSel').value = S.fit;
+  $('duoChk').checked = S.duo;
+  $('splitChk').checked = S.split;
+  $('intervalInp').value = S.interval;
+  $('speedInp').value = S.speed;
+  $('speedVal').textContent = S.speed + 'px/s';
+}
+function setMode(m, silent) {
+  const prev = S.mode;
+  S.mode = m;
+  store.set('mode', m);
+  $('modeSel').value = m;
+  if (prev === 'strip' && S.book) S.idx = stripPage();
+  navStack.length = 0;
+  const frac = (prev !== 'strip' && m === 'strip' && S.book && S.book.count > 1) ? S.idx / (S.book.count - 1) : 0;
+  stage.className = m === 'strip' ? 'strip' : ('paged fit-' + S.fit + (S.duo ? ' duo' : ''));
+  $('pbar').style.display = m === 'flip' ? '' : 'none';
+  document.querySelectorAll('.flip-only').forEach(el => el.classList.toggle('hidden', m !== 'flip'));
+  document.querySelectorAll('.strip-only').forEach(el => el.classList.toggle('hidden', m !== 'strip'));
+  if (!silent && S.book) { if (m === 'strip') show(0, frac); else show(S.idx); }
+}
+function applyFitClass() {
+  stage.className = S.mode === 'strip' ? 'strip' : ('paged fit-' + S.fit + (S.duo ? ' duo' : ''));
+}
+function toggleFS() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen().catch(() => {});
+}
+function toggleHelp() { $('help').classList.toggle('hidden'); }
+
+// ---------- 缩放 / 平移 ----------
+function setZoom(z, cx, cy) {
+  if (!S.book) return;
+  const old = S.zoom || 1;
+  z = Math.min(5, Math.max(1, Math.round(z * 100) / 100));
+  if (z === old) return;
+  const r = stage.getBoundingClientRect();
+  const px = cx != null ? cx - r.left : r.width / 2;
+  const py = cy != null ? cy - r.top : r.height / 2;
+  const sx = stage.scrollLeft, sy = stage.scrollTop;
+  S.zoom = z;
+  stage.style.zoom = z === 1 ? '' : z;
+  // CSS zoom 下滚动坐标按 1/z 缩放：布局点 X 在缩放前满足 X = s0 + px/old，
+  // 缩放后要让它继续落在光标处：X = s1 + px/z → s1 = s0 + px/old - px/z
+  if (z > 1) {
+    stage.scrollLeft = Math.max(0, sx + px / old - px / z);
+    stage.scrollTop = Math.max(0, sy + py / old - py / z);
+  } else { stage.scrollLeft = 0; stage.scrollTop = 0; }
+}
+let dragState = null, dragMoved = false;
+stage.addEventListener('mousedown', e => {
+  if (!S.book || S.zoom <= 1) return;
+  dragState = { x: e.clientX, y: e.clientY, sl: stage.scrollLeft, st: stage.scrollTop };
+  dragMoved = false;
+  e.preventDefault();
+});
+addEventListener('mousemove', e => {
+  if (!dragState) return;
+  const dx = e.clientX - dragState.x, dy = e.clientY - dragState.y;
+  if (Math.abs(dx) + Math.abs(dy) > 5) dragMoved = true;
+  stage.scrollLeft = dragState.sl - dx;
+  stage.scrollTop = dragState.st - dy;
+});
+addEventListener('mouseup', () => { dragState = null; });
+
+// ---------- 顶栏自动隐藏 ----------
+let hideT = 0;
+function pokeUI() {
+  if (!S.book) return;
+  $('topbar').classList.remove('away');
+  document.body.classList.remove('nocursor');
+  clearTimeout(hideT);
+  if (S.playing) hideT = setTimeout(() => {
+    $('topbar').classList.add('away');
+    document.body.classList.add('nocursor');
+  }, 1800);
+}
+
+// ---------- 进度记忆 ----------
+let spT = 0;
+function saveProgressSoon() { clearTimeout(spT); spT = setTimeout(saveProgress, 400); }
+function saveProgress() {
+  if (!S.book) return;
+  const m = store.get('progress', {});
+  const frac = stage.scrollHeight > stage.clientHeight ? stage.scrollTop / (stage.scrollHeight - stage.clientHeight) : 0;
+  const set = { mode: S.mode, rtl: S.rtl, fit: S.fit, duo: S.duo, split: S.split };
+  m[S.book.key] = S.mode === 'flip'
+    ? { i: S.idx, n: S.book.count, t: Date.now(), set }
+    : { f: frac, n: S.book.count, t: Date.now(), set };
+  const ks = Object.keys(m);
+  if (ks.length > 80) {
+    ks.sort((a, b) => (m[a].t || 0) - (m[b].t || 0));
+    for (let i = 0; i < ks.length - 80; i++) delete m[ks[i]];
+  }
+  store.set('progress', m);
+}
+
+// ---------- 进度条拖动 ----------
+const seek = $('seek');
+let seekLock = false;
+function updateSeek() {
+  if (seekLock || !S.book) return;
+  if (S.mode === 'flip') seek.value = S.book.count > 1 ? Math.round(S.idx / (S.book.count - 1) * 1000) : 0;
+  else {
+    const max = stage.scrollHeight - stage.clientHeight;
+    seek.value = max > 0 ? Math.round(stage.scrollTop / max * 1000) : 0;
+  }
+}
+seek.addEventListener('input', () => {
+  if (!S.book) return;
+  seekLock = true;
+  const v = +seek.value;
+  if (S.mode === 'flip') {
+    const ni = Math.round(v / 1000 * (S.book.count - 1));
+    if (ni !== S.idx) { S.idx = ni; show(S.idx); }
+    updateCounter();
+  } else {
+    const max = stage.scrollHeight - stage.clientHeight;
+    stage.scrollTop = v / 1000 * max;
+  }
+});
+seek.addEventListener('change', () => { seekLock = false; saveProgressSoon(); resetT0(); updateSeek(); });
+
+// ---------- 事件绑定 ----------
+$('drop').addEventListener('click', () => $('fileInput').click());
+$('pickFiles').addEventListener('click', () => $('fileInput').click());
+$('pickDir').addEventListener('click', () => $('dirInput').click());
+$('fileInput').addEventListener('change', e => { openFromFiles(e.target.files); e.target.value = ''; });
+$('dirInput').addEventListener('change', e => { openFromFiles(e.target.files); e.target.value = ''; });
+
+addEventListener('dragover', e => { e.preventDefault(); $('drop').classList.add('over'); });
+addEventListener('dragleave', e => { if (!e.relatedTarget) $('drop').classList.remove('over'); });
+// 拖放：普通文件优先走 dataTransfer.files（与"选择文件"按钮同源，file:// 下最可靠）；
+// 只有拖入文件夹时才用 webkitGetAsEntry 递归读取（该 API 在 file:// 页面上并不可靠）
+function walkEntries(entries) {
+  const out = [];
+  const walk = ent => new Promise(res => {
+    if (ent.isFile) ent.file(f => { out.push(f); res(); }, () => res());
+    else if (ent.isDirectory) {
+      const rd = ent.createReader();
+      const next = () => rd.readEntries(async es => {
+        if (!es.length) return res();
+        for (const e2 of es) await walk(e2);
+        next();
+      }, () => res());
+      next();
+    } else res();
+  });
+  return Promise.all(entries.map(walk)).then(() => out);
+}
+addEventListener('drop', e => {
+  e.preventDefault();
+  $('drop').classList.remove('over');
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  let entries = [];
+  try { entries = (dt.items ? [...dt.items] : []).map(it => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean); } catch {}
+  const files = [...(dt.files || [])];
+  if (entries.some(en => en.isDirectory)) {
+    walkEntries(entries).then(out => {
+      if (out.length) openFromFiles(out);
+      else if (files.length) openFromFiles(files);
+      else toast('未能读取拖入的文件夹，请改用「选择文件夹」按钮');
+    }).catch(() => { if (files.length) openFromFiles(files); });
+  } else if (files.length) {
+    openFromFiles(files);
+  } else if (entries.length) {
+    walkEntries(entries).then(out => {
+      if (out.length) openFromFiles(out);
+      else toast('未能读取拖入的内容，请改用「选择压缩包 / 图片」按钮');
+    });
+  } else {
+    toast('未能读取拖入的内容，请改用「选择压缩包 / 图片」按钮');
+  }
+});
+
+$('backBtn').addEventListener('click', home);
+$('prevBtn').addEventListener('click', () => go(-1));
+$('nextBtn').addEventListener('click', () => go(+1));
+$('playBtn').addEventListener('click', () => S.playing ? pause() : play());
+$('fsBtn').addEventListener('click', toggleFS);
+$('helpBtn').addEventListener('click', toggleHelp);
+$('helpClose').addEventListener('click', toggleHelp);
+$('help').addEventListener('click', e => { if (e.target === $('help')) toggleHelp(); });
+$('topbar').addEventListener('click', e => { const b = e.target.closest('button'); if (b) b.blur(); });
+
+$('modeSel').addEventListener('change', e => setMode(e.target.value));
+$('dirSel').addEventListener('change', e => { S.rtl = e.target.value === 'rtl'; store.set('rtl', S.rtl); if (S.book && S.mode === 'flip') show(S.idx); });
+$('fitSel').addEventListener('change', e => { S.fit = e.target.value; store.set('fit', S.fit); applyFitClass(); });
+$('duoChk').addEventListener('change', e => { S.duo = e.target.checked; store.set('duo', S.duo); if (S.book && S.mode === 'flip') { navStack.length = 0; show(S.idx); } });
+$('splitChk').addEventListener('change', e => { S.split = e.target.checked; store.set('split', S.split); if (S.book && S.mode === 'flip') { navStack.length = 0; show(S.idx); } });
+
+const intervalInp = $('intervalInp');
+intervalInp.addEventListener('change', () => {
+  let v = parseFloat(intervalInp.value);
+  if (!isFinite(v)) v = 5;
+  v = Math.min(3600, Math.max(0.5, v));
+  S.interval = v; intervalInp.value = v; store.set('interval', v);
+  if (S.playing && S.mode === 'flip') resetT0();
+});
+const speedInp = $('speedInp'), speedVal = $('speedVal');
+speedInp.addEventListener('input', () => {
+  S.speed = +speedInp.value;
+  speedVal.textContent = S.speed + 'px/s';
+  store.set('speed', S.speed);
+});
+
+stage.addEventListener('click', e => {
+  if (!S.book || S.mode !== 'flip' || S.zoom > 1 || dragMoved) return;
+  const x = e.clientX / innerWidth;
+  go(x < 0.5 ? (S.rtl ? +1 : -1) : (S.rtl ? -1 : +1));
+});
+stage.addEventListener('dblclick', () => { if (S.zoom > 1) setZoom(1); });
+stage.addEventListener('wheel', e => {
+  if (!S.book) return;
+  if (e.ctrlKey) { e.preventDefault(); setZoom(S.zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2), e.clientX, e.clientY); return; }
+  if (S.mode === 'strip') return;
+  if (S.zoom > 1) { e.preventDefault(); stage.scrollTop += e.deltaY; stage.scrollLeft += e.deltaX; return; }
+  if (S.fit !== 'contain' || Math.abs(e.deltaY) < 3) return;
+  e.preventDefault();
+  go(e.deltaY > 0 ? +1 : -1);
+}, { passive: false });
+stage.addEventListener('scroll', () => {
+  if (S.book && S.mode === 'strip') { updateCounter(); updateSeek(); saveProgressSoon(); }
+});
+stage.addEventListener('dragstart', e => e.preventDefault());
+
+addEventListener('mousemove', pokeUI);
+addEventListener('keydown', e => {
+  if (!S.book) return;
+  if (e.target.matches('input, select, textarea')) return;
+  switch (e.key) {
+    case ' ': e.preventDefault(); S.playing ? pause() : play(); break;
+    case 'ArrowRight': S.mode === 'flip' ? go(S.rtl ? -1 : +1) : stage.scrollBy({ top: 160 }); break;
+    case 'ArrowLeft': S.mode === 'flip' ? go(S.rtl ? +1 : -1) : stage.scrollBy({ top: -160 }); break;
+    case 'ArrowDown': stage.scrollBy({ top: 160 }); break;
+    case 'ArrowUp': stage.scrollBy({ top: -160 }); break;
+    case 'PageDown': go(+1); break;
+    case 'PageUp': go(-1); break;
+    case 'Home': if (S.mode === 'flip') { navStack.length = 0; S.idx = 0; show(0); } else stage.scrollTop = 0; break;
+    case 'End': if (S.mode === 'flip') { navStack.length = 0; S.idx = S.book.count - 1; show(S.idx); } else stage.scrollTop = stage.scrollHeight; break;
+    case 'f': case 'F': toggleFS(); break;
+    case '+': case '=': intervalInp.value = S.interval + 0.5; intervalInp.dispatchEvent(new Event('change')); toast('间隔 ' + S.interval + ' 秒'); break;
+    case '-': case '_': intervalInp.value = S.interval - 0.5; intervalInp.dispatchEvent(new Event('change')); toast('间隔 ' + S.interval + ' 秒'); break;
+    case '?': toggleHelp(); break;
+    case 'Escape':
+      if (!$('help').classList.contains('hidden')) { $('help').classList.add('hidden'); break; }
+      if (!document.fullscreenElement) home();
+      break;
+  }
+});
+
+// 初始化界面状态
+syncControls();
+setMode(S.mode, true);
+
+// 测试钩子（不影响正常使用）
+window.__mpTest = { openFromFiles, S, show, go, setZoom, stage, flow };
+</script>
+</body>
+</html>
